@@ -23,6 +23,7 @@ ENDPOINTS_FILE=""
 OUTDIR="simapi_results"
 STORE=0
 PRETTY=0
+SHOW_REQUEST=0
 
 print_usage() {
   cat <<EOF
@@ -34,6 +35,8 @@ Options:
   -o DIR      Output directory (used only with 'store'). Default: ${OUTDIR}
   --store     Same as the 'store' subcommand: save responses to files as well.
   --pretty    Pretty-print JSON to stdout (if jq available). No effect on stored files.
+  --show-request
+              Print the exact curl command (with sanitized credentials) before each request.
   -h|--help   Show this help.
 
 Examples:
@@ -51,6 +54,7 @@ while [[ $# -gt 0 ]]; do
     -o) OUTDIR="${2:-}"; shift 2 ;;
     store|--store) STORE=1; shift ;;
     --pretty) PRETTY=1; shift ;;
+    --show-request) SHOW_REQUEST=1; shift ;;
     -h|--help) print_usage; exit 0 ;;
     *) echo "Unknown arg: $1" >&2; print_usage; exit 1 ;;
   esac
@@ -103,8 +107,21 @@ pretty_cat_if_json() {
 }
 
 # Core request logic
+build_curl_preview() {
+  local path="$1"
+  local url="${BASE_URL}${path}"
+  local cmd=(curl --netrc-file "${HOME}/.netrc" -H "Accept: application/json" "${url}")
+
+  printf '%q ' "${cmd[@]}"
+}
+
 request_endpoint() {
   local path="$1"
+  local url="${BASE_URL}${path}"
+
+  if [[ "${SHOW_REQUEST}" -eq 1 ]]; then
+    >&2 printf "→ %s\n" "$(build_curl_preview "${path}")"
+  fi
 
   if [[ "${STORE}" -eq 1 ]]; then
     local fname; fname="$(safe_name "${path}")"
@@ -119,7 +136,7 @@ request_endpoint() {
       -H "Accept: application/json" \
       -w "%{http_code} %{time_total} %{size_download}" \
       -o "${tmp}" \
-      "${BASE_URL}${path}" > "${meta}" || true
+      "${url}" > "${meta}" || true
 
     mv "${tmp}" "${outfile}"
 
@@ -145,7 +162,7 @@ request_endpoint() {
       --netrc-file "${HOME}/.netrc" \
       -H "Accept: application/json" \
       -w "%{http_code} %{time_total} %{size_download}" \
-      "${BASE_URL}${path}" \
+      "${url}" \
       -o >(cat) > "${meta}" || true
     printf "\n"  # newline after body
 
